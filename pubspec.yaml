@@ -1,0 +1,44 @@
+name: activity_monitor
+description: A cross-platform activity monitoring application for macOS and Windows.
+
+# Use a version number that makes sense for your project
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Essential packages for desktop development
+  path_provider: ^2.1.0  # For accessing file system paths
+  path: ^1.8.3          # Path manipulation utilities
+  ffi: ^2.1.0           # For FFI bindings to native code
+  cupertino_icons: ^1.0.5  # Icons for macOS look and feel
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  
+  # Add any assets here
+  # assets:
+  #   - assets/images/
+  
+  # If you need custom fonts
+  # fonts:
+  #   - family: Roboto
+  #     fonts:
+  #       - asset: fonts/Roboto-Regular.ttf
+  #       - asset: fonts/Roboto-Bold.ttf
+  #         weight: 700
+
+# Explicitly define supported platforms
+flutter_desktop_platforms:
+  windows:
+    enabled: true
+  macos:
+    enabled: true
