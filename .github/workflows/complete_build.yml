@@ -162,8 +162,17 @@ jobs:
       - name: Archive macOS build
         run: |
           cd build/macos/Build/Products/Release
-          zip -r activity_monitor_macos.zip "Activity Monitor.app"
-          mv activity_monitor_macos.zip ../../../../../
+          ls -la
+          # Use find to get the actual app name
+          APP_NAME=$(find . -name "*.app" -type d -depth 1 | sed 's|^\./||')
+          echo "Found app: $APP_NAME"
+          if [ -n "$APP_NAME" ]; then
+            zip -r activity_monitor_macos.zip "$APP_NAME"
+            mv activity_monitor_macos.zip ../../../../../
+          else
+            echo "No .app bundle found!"
+            exit 1
+          fi
           
       # Upload artifacts
       - name: Upload macOS build artifact
@@ -251,9 +260,12 @@ jobs:
       # Update CMakeLists.txt to include the DLL
       - name: Update CMakeLists.txt
         run: |
-          $cmakeContent = Get-Content -Path "windows/CMakeLists.txt" -Raw
-          $newContent = $cmakeContent -replace "# This file is managed by Flutter\.", "# This file is managed by Flutter.`n`n# Copy the activity_monitor.dll to the binary location`nadd_custom_command(TARGET \${BINARY_NAME} POST_BUILD`n  COMMAND \${CMAKE_COMMAND} -E copy_if_different`n  \"\${CMAKE_CURRENT_SOURCE_DIR}/lib/activity_monitor.dll\"`n  \"\$<TARGET_FILE_DIR:\${BINARY_NAME}>\"`n)"
-          Set-Content -Path "windows/CMakeLists.txt" -Value $newContent
+          Add-Content -Path "windows/CMakeLists.txt" -Value "`n# Copy the activity_monitor.dll to the binary location"
+          Add-Content -Path "windows/CMakeLists.txt" -Value "add_custom_command(TARGET `${BINARY_NAME} POST_BUILD"
+          Add-Content -Path "windows/CMakeLists.txt" -Value "  COMMAND `${CMAKE_COMMAND} -E copy_if_different"
+          Add-Content -Path "windows/CMakeLists.txt" -Value "  `"`${CMAKE_CURRENT_SOURCE_DIR}/lib/activity_monitor.dll`""
+          Add-Content -Path "windows/CMakeLists.txt" -Value "  `"`$<TARGET_FILE_DIR:`${BINARY_NAME}>`""
+          Add-Content -Path "windows/CMakeLists.txt" -Value ")"
       
       # Create Windows manifest
       - name: Create Windows manifest
@@ -293,10 +305,9 @@ jobs:
       # Update Runner CMakeLists.txt to include manifest
       - name: Update Runner CMakeLists.txt
         run: |
-          $runnerCmakePath = "windows/runner/CMakeLists.txt"
-          $runnerCmakeContent = Get-Content -Path $runnerCmakePath -Raw
-          $newContent = $runnerCmakeContent -replace "set\(RUNNER_RESOURCES", "# Add manifest file for admin privileges`nset(MANIFEST_FILE \"\${CMAKE_CURRENT_SOURCE_DIR}/activity_monitor.exe.manifest\")`ntarget_sources(\${BINARY_NAME} PRIVATE \"\${MANIFEST_FILE}\")`n`nset(RUNNER_RESOURCES"
-          Set-Content -Path $runnerCmakePath -Value $newContent
+          Add-Content -Path "windows/runner/CMakeLists.txt" -Value "`n# Add manifest file for admin privileges"
+          Add-Content -Path "windows/runner/CMakeLists.txt" -Value "set(MANIFEST_FILE `"`${CMAKE_CURRENT_SOURCE_DIR}/activity_monitor.exe.manifest`")"
+          Add-Content -Path "windows/runner/CMakeLists.txt" -Value "target_sources(`${BINARY_NAME} PRIVATE `"`${MANIFEST_FILE}`")"
       
       # Get Flutter dependencies
       - name: Get Flutter dependencies
