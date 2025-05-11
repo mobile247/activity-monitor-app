@@ -21,7 +21,7 @@ jobs:
       # Clone Rust library repository
       - name: Clone Rust library repository
         run: |
-          git clone https://github.com/yourusername/activity-monitor.git rust_lib
+          git clone https://github.com/mobile247/activity-monitor.git rust_lib
       
       # Build Rust library for macOS
       - name: Install Rust toolchain

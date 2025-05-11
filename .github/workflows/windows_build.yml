@@ -21,7 +21,7 @@ jobs:
       # Clone Rust library repository
       - name: Clone Rust library repository
         run: |
-          git clone https://github.com/yourusername/activity-monitor.git rust_lib
+          git clone https://github.com/mobile247/activity-monitor.git rust_lib
       
       # Build Rust library for Windows
       - name: Install Rust toolchain
@@ -99,7 +99,7 @@ jobs:
             <assemblyIdentity 
               version="1.0.0.0" 
               processorArchitecture="*" 
-              name="com.yourcompany.activitymonitor" 
+              name="com.mobile247.activitymonitor" 
               type="win32"
             />
             <description>Activity Monitor</description>
