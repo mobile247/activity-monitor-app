@@ -81,7 +81,7 @@ jobs:
           # Copy the library files from the main project
           Copy-Item -Path "${{ github.workspace }}\lib\*" -Destination "lib\" -Recurse -Force
       
-      # Add Rust DLL to the Flutter project
+      # Add Rust DLL to the Flutter project and update CMake
       - name: Add Rust DLL to Flutter project
         run: |
           cd C:\temp_flutter_project\activity_monitor_app
@@ -92,13 +92,42 @@ jobs:
           # Copy the DLL
           Copy-Item -Path "${{ github.workspace }}\rust_lib\target\release\activity_monitor.dll" -Destination "windows\lib\"
           
-          # Update CMakeLists.txt to include the DLL
-          Add-Content -Path "windows\CMakeLists.txt" -Value "`n# Copy the activity_monitor.dll to the binary location"
-          Add-Content -Path "windows\CMakeLists.txt" -Value "add_custom_command(TARGET `${BINARY_NAME} POST_BUILD"
-          Add-Content -Path "windows\CMakeLists.txt" -Value "  COMMAND `${CMAKE_COMMAND} -E copy_if_different"
-          Add-Content -Path "windows\CMakeLists.txt" -Value "  `"`${CMAKE_CURRENT_SOURCE_DIR}/lib/activity_monitor.dll`""
-          Add-Content -Path "windows\CMakeLists.txt" -Value "  `"`$<TARGET_FILE_DIR:`${BINARY_NAME}>`""
-          Add-Content -Path "windows\CMakeLists.txt" -Value ")"
+          # Analyze CMakeLists.txt to find the actual BINARY_NAME variable
+          $cmakeContent = Get-Content -Path "windows\CMakeLists.txt" -Raw
+          
+          # Look for set(BINARY_NAME line
+          if ($cmakeContent -match 'set\(BINARY_NAME\s+"([^"]+)"\)') {
+            $binaryName = $matches[1]
+            Write-Host "Found binary name: $binaryName"
+          } else {
+            $binaryName = "activity_monitor_app"
+            Write-Host "Using default binary name: $binaryName"
+          }
+          
+          # Check if binary name is already set as a target
+          if ($cmakeContent -match "add_executable\(`${BINARY_NAME}") {
+            Write-Host "Found add_executable for BINARY_NAME - will use this target"
+            
+            # Create a separate file for our custom command
+            $customCommandContent = @"
+            # Copy the activity_monitor.dll to the binary location
+            add_custom_command(
+              TARGET `${BINARY_NAME}
+              POST_BUILD
+              COMMAND `${CMAKE_COMMAND} -E copy_if_different
+              "`${CMAKE_CURRENT_SOURCE_DIR}/lib/activity_monitor.dll"
+              "`$<TARGET_FILE_DIR:`${BINARY_NAME}>"
+            )
+            "@
+            
+            Set-Content -Path "windows\rust_integration.cmake" -Value $customCommandContent
+            
+            # Include our custom file at the end of CMakeLists.txt
+            Add-Content -Path "windows\CMakeLists.txt" -Value "`n# Include Rust DLL integration"
+            Add-Content -Path "windows\CMakeLists.txt" -Value "include(`${CMAKE_CURRENT_SOURCE_DIR}/rust_integration.cmake)"
+          } else {
+            Write-Host "WARNING: Could not find add_executable for BINARY_NAME"
+          }
           
           # Create manifest for admin privileges
           $manifestContent = @"
@@ -133,10 +162,38 @@ jobs:
           
           Set-Content -Path "windows\runner\activity_monitor.exe.manifest" -Value $manifestContent
           
-          # Update Runner CMakeLists.txt to include manifest
-          Add-Content -Path "windows\runner\CMakeLists.txt" -Value "`n# Add manifest file for admin privileges"
-          Add-Content -Path "windows\runner\CMakeLists.txt" -Value "set(MANIFEST_FILE `"`${CMAKE_CURRENT_SOURCE_DIR}/activity_monitor.exe.manifest`")"
-          Add-Content -Path "windows\runner\CMakeLists.txt" -Value "target_sources(`${BINARY_NAME} PRIVATE `"`${MANIFEST_FILE}`")"
+          # Look for runner CMakeLists.txt
+          $runnerCmakeContent = Get-Content -Path "windows\runner\CMakeLists.txt" -Raw
+          
+          # Create a separate file for our manifest integration
+          $manifestIntegration = @"
+          # Add manifest file for admin privileges
+          set(MANIFEST_FILE "`${CMAKE_CURRENT_SOURCE_DIR}/activity_monitor.exe.manifest")
+          target_sources(`${BINARY_NAME} PRIVATE "`${MANIFEST_FILE}")
+          "@
+          
+          Set-Content -Path "windows\runner\manifest_integration.cmake" -Value $manifestIntegration
+          
+          # Include our custom file at the end of runner CMakeLists.txt
+          Add-Content -Path "windows\runner\CMakeLists.txt" -Value "`n# Include manifest integration"
+          Add-Content -Path "windows\runner\CMakeLists.txt" -Value "include(`${CMAKE_CURRENT_SOURCE_DIR}/manifest_integration.cmake)"
+          
+      # Get full CMake content for debugging
+      - name: Debug CMake files
+        run: |
+          cd C:\temp_flutter_project\activity_monitor_app
+          
+          Write-Host "=== Main CMakeLists.txt ==="
+          Get-Content -Path "windows\CMakeLists.txt"
+          
+          Write-Host "=== Runner CMakeLists.txt ==="
+          Get-Content -Path "windows\runner\CMakeLists.txt"
+          
+          Write-Host "=== Rust Integration CMake ==="
+          Get-Content -Path "windows\rust_integration.cmake"
+          
+          Write-Host "=== Manifest Integration CMake ==="
+          Get-Content -Path "windows\runner\manifest_integration.cmake"
       
       # Build the Windows app
       - name: Build Windows app
