@@ -1,0 +1,161 @@
+name: Windows Build
+
+on:
+  workflow_dispatch:  # Allow manual triggering
+  push:
+    branches: [ main ]
+    paths:
+      - 'lib/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/windows_build.yml'
+      - 'windows/**'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      # Clone Rust library repository
+      - name: Clone Rust library repository
+        run: |
+          git clone https://github.com/yourusername/activity-monitor.git rust_lib
+      
+      # Build Rust library for Windows
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      
+      # Fix the Windows build error
+      - name: Fix Windows build error
+        run: |
+          $windowsPath = "rust_lib/src/windows.rs"
+          $content = Get-Content -Path $windowsPath
+          
+          # Update keyboard hook
+          $content = $content -replace "KEYBOARD_HOOK = Some\(SetWindowsHookExW\(", "KEYBOARD_HOOK = Some(SetWindowsHookExW("
+          $content = $content -replace "\|\s*\)\)\);", "| )).expect(""Failed to set keyboard hook""));"
+          
+          # Update mouse hook
+          $content = $content -replace "MOUSE_HOOK = Some\(SetWindowsHookExW\(", "MOUSE_HOOK = Some(SetWindowsHookExW("
+          $content = $content -replace "\|\s*\)\)\);", "| )).expect(""Failed to set mouse hook""));"
+          
+          # Fix unused variable warning
+          $content = $content -replace "let is_genuine", "let _is_genuine"
+          
+          Set-Content -Path $windowsPath -Value $content
+      
+      - name: Build Rust DLL
+        run: |
+          cd rust_lib
+          cargo build --release
+      
+      # Create a completely separate Flutter project with the correct name
+      - name: Create separate Flutter project
+        run: |
+          # Create a temp directory for the valid-named Flutter project
+          mkdir -p C:/temp_flutter_project
+          cd C:/temp_flutter_project
+          
+          # Set up Flutter
+          & $env:FLUTTER_ROOT/bin/flutter config --enable-windows-desktop
+          
+          # Create a new Flutter project with Windows support
+          & $env:FLUTTER_ROOT/bin/flutter create --platforms=windows activity_monitor_app
+          
+          # Copy over the relevant files from the original project
+          cd activity_monitor_app
+          
+          # Copy the library files from the main project
+          Copy-Item -Path "${{ github.workspace }}/lib/*" -Destination "lib/" -Recurse -Force
+      
+      # Add Rust DLL to the Flutter project
+      - name: Add Rust DLL to Flutter project
+        run: |
+          cd C:/temp_flutter_project/activity_monitor_app
+          
+          # Create lib directory for the DLL
+          mkdir -p windows/lib
+          
+          # Copy the DLL
+          Copy-Item -Path "${{ github.workspace }}/rust_lib/target/release/activity_monitor.dll" -Destination "windows/lib/"
+          
+          # Update CMakeLists.txt to include the DLL
+          Add-Content -Path "windows/CMakeLists.txt" -Value "`n# Copy the activity_monitor.dll to the binary location"
+          Add-Content -Path "windows/CMakeLists.txt" -Value "add_custom_command(TARGET `${BINARY_NAME} POST_BUILD"
+          Add-Content -Path "windows/CMakeLists.txt" -Value "  COMMAND `${CMAKE_COMMAND} -E copy_if_different"
+          Add-Content -Path "windows/CMakeLists.txt" -Value "  `"`${CMAKE_CURRENT_SOURCE_DIR}/lib/activity_monitor.dll`""
+          Add-Content -Path "windows/CMakeLists.txt" -Value "  `"`$<TARGET_FILE_DIR:`${BINARY_NAME}>`""
+          Add-Content -Path "windows/CMakeLists.txt" -Value ")"
+          
+          # Create manifest for admin privileges
+          $manifestContent = @"
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+            <assemblyIdentity 
+              version="1.0.0.0" 
+              processorArchitecture="*" 
+              name="com.yourcompany.activitymonitor" 
+              type="win32"
+            />
+            <description>Activity Monitor</description>
+            
+            <!-- Request administrator privileges -->
+            <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+              <security>
+                <requestedPrivileges>
+                  <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+                </requestedPrivileges>
+              </security>
+            </trustInfo>
+            
+            <!-- Windows 10 compatibility -->
+            <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+              <application>
+                <!-- Windows 10 and 11 -->
+                <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+              </application>
+            </compatibility>
+          </assembly>
+          "@
+          
+          Set-Content -Path "windows/runner/activity_monitor.exe.manifest" -Value $manifestContent
+          
+          # Update Runner CMakeLists.txt to include manifest
+          Add-Content -Path "windows/runner/CMakeLists.txt" -Value "`n# Add manifest file for admin privileges"
+          Add-Content -Path "windows/runner/CMakeLists.txt" -Value "set(MANIFEST_FILE `"`${CMAKE_CURRENT_SOURCE_DIR}/activity_monitor.exe.manifest`")"
+          Add-Content -Path "windows/runner/CMakeLists.txt" -Value "target_sources(`${BINARY_NAME} PRIVATE `"`${MANIFEST_FILE}`")"
+      
+      # Build the Windows app
+      - name: Build Windows app
+        run: |
+          cd C:/temp_flutter_project/activity_monitor_app
+          & $env:FLUTTER_ROOT/bin/flutter pub get
+          & $env:FLUTTER_ROOT/bin/flutter build windows --release
+      
+      # Copy the built files back to the workspace
+      - name: Copy built files to workspace
+        run: |
+          # Create directory for the built files
+          mkdir -p ${{ github.workspace }}/build/windows/runner/Release
+          
+          # Copy the built files
+          Copy-Item -Path "C:/temp_flutter_project/activity_monitor_app/build/windows/runner/Release/*" -Destination "${{ github.workspace }}/build/windows/runner/Release/" -Recurse -Force
+      
+      # Zip the Windows build
+      - name: Create Windows build archive
+        run: |
+          cd ${{ github.workspace }}
+          Compress-Archive -Path "build/windows/runner/Release/*" -DestinationPath "activity_monitor_windows_build.zip"
+      
+      # Upload the Windows build
+      - name: Upload Windows build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: activity_monitor_windows_build
+          path: activity_monitor_windows_build.zip
+          retention-days: 7

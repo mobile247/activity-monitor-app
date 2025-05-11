@@ -1,0 +1,182 @@
+name: macOS Build
+
+on:
+  workflow_dispatch:  # Allow manual triggering
+  push:
+    branches: [ main ]
+    paths:
+      - 'lib/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/macos_build.yml'
+      - 'macos/**'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      # Clone Rust library repository
+      - name: Clone Rust library repository
+        run: |
+          git clone https://github.com/yourusername/activity-monitor.git rust_lib
+      
+      # Build Rust library for macOS
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      
+      - name: Build Rust library for macOS
+        run: |
+          cd rust_lib
+          cargo build --release
+      
+      # Set up Flutter and build macOS app
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.16.x'
+          channel: 'stable'
+      
+      - name: Enable macOS desktop
+        run: flutter config --enable-macos-desktop
+      
+      # Create a temporary Flutter project with desktop support
+      - name: Create temporary Flutter project
+        run: |
+          # Create a temp directory outside the main project
+          mkdir -p ../temp_flutter_project
+          cd ../temp_flutter_project
+          
+          # Create a new Flutter project with desktop support
+          flutter create --platforms=macos,windows temp_app
+          
+          # Copy the desktop directories back to the main project
+          cd temp_app
+          cp -R macos ../../activity-monitor-app/
+          cp -R windows ../../activity-monitor-app/
+          cd ../../activity-monitor-app/
+      
+      # Create macOS library directory and copy dylib
+      - name: Copy dylib to Flutter project
+        run: |
+          mkdir -p macos/Libraries
+          cp rust_lib/target/release/libactivity_monitor.dylib macos/Libraries/
+      
+      # Update Podfile with the copy phase
+      - name: Update Podfile
+        run: |
+          cat > macos/Podfile << 'EOL'
+          platform :osx, '10.14'
+
+          # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+          ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+          project 'Runner', {
+            'Debug' => :debug,
+            'Profile' => :release,
+            'Release' => :release,
+          }
+
+          def flutter_root
+            generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'ephemeral', 'Flutter-Generated.xcconfig'), __FILE__)
+            unless File.exist?(generated_xcode_build_settings_path)
+              raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure \"flutter pub get\" is executed first"
+            end
+
+            File.foreach(generated_xcode_build_settings_path) do |line|
+              matches = line.match(/FLUTTER_ROOT\=(.*)/)
+              return matches[1].strip if matches
+            end
+            raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Flutter-Generated.xcconfig, then run \"flutter pub get\""
+          end
+
+          require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+          flutter_macos_podfile_setup
+
+          target 'Runner' do
+            use_frameworks!
+            use_modular_headers!
+
+            flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
+            
+            # Copy libactivity_monitor.dylib to Frameworks during build
+            script_phase :name => 'Copy Rust Library',
+                         :script => 'cp "${SRCROOT}/Libraries/libactivity_monitor.dylib" "${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/"',
+                         :execution_position => :before_compile
+          end
+
+          post_install do |installer|
+            installer.pods_project.targets.each do |target|
+              flutter_additional_macos_build_settings(target)
+              
+              # Add entitlements for input monitoring
+              target.build_configurations.each do |config|
+                config.build_settings['ENABLE_HARDENED_RUNTIME'] = 'YES'
+                config.build_settings['OTHER_CODE_SIGN_FLAGS'] = '--options=runtime'
+                
+                # Ensure minimum deployment target is set correctly
+                config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '10.14'
+              end
+            end
+          end
+          EOL
+      
+      # Create entitlements file
+      - name: Create entitlements file
+        run: |
+          cat > macos/Runner/Runner.entitlements << 'EOL'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>com.apple.security.app-sandbox</key>
+            <false/>
+            <key>com.apple.security.cs.disable-library-validation</key>
+            <true/>
+            <key>com.apple.security.input.monitoring</key>
+            <true/>
+          </dict>
+          </plist>
+          EOL
+      
+      # Build for macOS
+      - name: Get Flutter dependencies
+        run: flutter pub get
+      
+      - name: Install CocoaPods
+        run: |
+          cd macos
+          pod install
+      
+      - name: Build for macOS
+        run: flutter build macos --release
+      
+      # Archive macOS build
+      - name: Archive macOS build
+        run: |
+          cd build/macos/Build/Products/Release
+          ls -la
+          # Use find to get the actual app name
+          APP_NAME=$(find . -name "*.app" -type d -depth 1 | sed 's|^\./||')
+          echo "Found app: $APP_NAME"
+          if [ -n "$APP_NAME" ]; then
+            zip -r activity_monitor_macos.zip "$APP_NAME"
+            mv activity_monitor_macos.zip ../../../../../
+          else
+            echo "No .app bundle found!"
+            exit 1
+          fi
+          
+      # Upload artifacts
+      - name: Upload macOS build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: activity_monitor_macos
+          path: activity_monitor_macos.zip
+          retention-days: 7
