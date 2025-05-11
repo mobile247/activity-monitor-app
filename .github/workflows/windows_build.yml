@@ -33,7 +33,7 @@ jobs:
       # Fix the Windows build error
       - name: Fix Windows build error
         run: |
-          $windowsPath = "rust_lib/src/windows.rs"
+          $windowsPath = "rust_lib\src\windows.rs"
           $content = Get-Content -Path $windowsPath
           
           # Update keyboard hook
@@ -54,43 +54,51 @@ jobs:
           cd rust_lib
           cargo build --release
       
+      # Set up Flutter
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.16.x'
+          channel: 'stable'
+      
+      # Enable Windows desktop
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+      
       # Create a completely separate Flutter project with the correct name
       - name: Create separate Flutter project
         run: |
           # Create a temp directory for the valid-named Flutter project
-          mkdir -p C:/temp_flutter_project
-          cd C:/temp_flutter_project
-          
-          # Set up Flutter
-          & $env:FLUTTER_ROOT/bin/flutter config --enable-windows-desktop
+          mkdir -p C:\temp_flutter_project
+          cd C:\temp_flutter_project
           
           # Create a new Flutter project with Windows support
-          & $env:FLUTTER_ROOT/bin/flutter create --platforms=windows activity_monitor_app
+          flutter create --platforms=windows activity_monitor_app
           
           # Copy over the relevant files from the original project
           cd activity_monitor_app
           
           # Copy the library files from the main project
-          Copy-Item -Path "${{ github.workspace }}/lib/*" -Destination "lib/" -Recurse -Force
+          Copy-Item -Path "${{ github.workspace }}\lib\*" -Destination "lib\" -Recurse -Force
       
       # Add Rust DLL to the Flutter project
       - name: Add Rust DLL to Flutter project
         run: |
-          cd C:/temp_flutter_project/activity_monitor_app
+          cd C:\temp_flutter_project\activity_monitor_app
           
           # Create lib directory for the DLL
-          mkdir -p windows/lib
+          mkdir -p windows\lib
           
           # Copy the DLL
-          Copy-Item -Path "${{ github.workspace }}/rust_lib/target/release/activity_monitor.dll" -Destination "windows/lib/"
+          Copy-Item -Path "${{ github.workspace }}\rust_lib\target\release\activity_monitor.dll" -Destination "windows\lib\"
           
           # Update CMakeLists.txt to include the DLL
-          Add-Content -Path "windows/CMakeLists.txt" -Value "`n# Copy the activity_monitor.dll to the binary location"
-          Add-Content -Path "windows/CMakeLists.txt" -Value "add_custom_command(TARGET `${BINARY_NAME} POST_BUILD"
-          Add-Content -Path "windows/CMakeLists.txt" -Value "  COMMAND `${CMAKE_COMMAND} -E copy_if_different"
-          Add-Content -Path "windows/CMakeLists.txt" -Value "  `"`${CMAKE_CURRENT_SOURCE_DIR}/lib/activity_monitor.dll`""
-          Add-Content -Path "windows/CMakeLists.txt" -Value "  `"`$<TARGET_FILE_DIR:`${BINARY_NAME}>`""
-          Add-Content -Path "windows/CMakeLists.txt" -Value ")"
+          Add-Content -Path "windows\CMakeLists.txt" -Value "`n# Copy the activity_monitor.dll to the binary location"
+          Add-Content -Path "windows\CMakeLists.txt" -Value "add_custom_command(TARGET `${BINARY_NAME} POST_BUILD"
+          Add-Content -Path "windows\CMakeLists.txt" -Value "  COMMAND `${CMAKE_COMMAND} -E copy_if_different"
+          Add-Content -Path "windows\CMakeLists.txt" -Value "  `"`${CMAKE_CURRENT_SOURCE_DIR}/lib/activity_monitor.dll`""
+          Add-Content -Path "windows\CMakeLists.txt" -Value "  `"`$<TARGET_FILE_DIR:`${BINARY_NAME}>`""
+          Add-Content -Path "windows\CMakeLists.txt" -Value ")"
           
           # Create manifest for admin privileges
           $manifestContent = @"
@@ -123,34 +131,34 @@ jobs:
           </assembly>
           "@
           
-          Set-Content -Path "windows/runner/activity_monitor.exe.manifest" -Value $manifestContent
+          Set-Content -Path "windows\runner\activity_monitor.exe.manifest" -Value $manifestContent
           
           # Update Runner CMakeLists.txt to include manifest
-          Add-Content -Path "windows/runner/CMakeLists.txt" -Value "`n# Add manifest file for admin privileges"
-          Add-Content -Path "windows/runner/CMakeLists.txt" -Value "set(MANIFEST_FILE `"`${CMAKE_CURRENT_SOURCE_DIR}/activity_monitor.exe.manifest`")"
-          Add-Content -Path "windows/runner/CMakeLists.txt" -Value "target_sources(`${BINARY_NAME} PRIVATE `"`${MANIFEST_FILE}`")"
+          Add-Content -Path "windows\runner\CMakeLists.txt" -Value "`n# Add manifest file for admin privileges"
+          Add-Content -Path "windows\runner\CMakeLists.txt" -Value "set(MANIFEST_FILE `"`${CMAKE_CURRENT_SOURCE_DIR}/activity_monitor.exe.manifest`")"
+          Add-Content -Path "windows\runner\CMakeLists.txt" -Value "target_sources(`${BINARY_NAME} PRIVATE `"`${MANIFEST_FILE}`")"
       
       # Build the Windows app
       - name: Build Windows app
         run: |
-          cd C:/temp_flutter_project/activity_monitor_app
-          & $env:FLUTTER_ROOT/bin/flutter pub get
-          & $env:FLUTTER_ROOT/bin/flutter build windows --release
+          cd C:\temp_flutter_project\activity_monitor_app
+          flutter pub get
+          flutter build windows --release
       
       # Copy the built files back to the workspace
       - name: Copy built files to workspace
         run: |
           # Create directory for the built files
-          mkdir -p ${{ github.workspace }}/build/windows/runner/Release
+          mkdir -p ${{ github.workspace }}\build\windows\runner\Release
           
           # Copy the built files
-          Copy-Item -Path "C:/temp_flutter_project/activity_monitor_app/build/windows/runner/Release/*" -Destination "${{ github.workspace }}/build/windows/runner/Release/" -Recurse -Force
+          Copy-Item -Path "C:\temp_flutter_project\activity_monitor_app\build\windows\runner\Release\*" -Destination "${{ github.workspace }}\build\windows\runner\Release\" -Recurse -Force
       
       # Zip the Windows build
       - name: Create Windows build archive
         run: |
           cd ${{ github.workspace }}
-          Compress-Archive -Path "build/windows/runner/Release/*" -DestinationPath "activity_monitor_windows_build.zip"
+          Compress-Archive -Path "build\windows\runner\Release\*" -DestinationPath "activity_monitor_windows_build.zip"
       
       # Upload the Windows build
       - name: Upload Windows build artifact
