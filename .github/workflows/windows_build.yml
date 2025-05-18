@@ -69,7 +69,7 @@ jobs:
       - name: Create separate Flutter project
         run: |
           # Create a temp directory for the valid-named Flutter project
-          mkdir -p C:\temp_flutter_project
+          New-Item -Path "C:\temp_flutter_project" -ItemType Directory -Force
           cd C:\temp_flutter_project
           
           # Create a new Flutter project with Windows support
@@ -81,25 +81,23 @@ jobs:
           # Copy the library files from the main project
           Copy-Item -Path "${{ github.workspace }}\lib\*" -Destination "lib\" -Recurse -Force
       
-      # Create a minimal plugin to integrate the Rust DLL
-      - name: Create Rust DLL plugin
+      # Add the Rust DLL to the project
+      - name: Add Rust DLL to project
         run: |
           cd C:\temp_flutter_project\activity_monitor_app
           
-          # Create windows folder if it doesn't exist
-          mkdir -p windows
-          
-          # Create lib directory for the DLL
-          mkdir -p windows\lib
+          # Create lib directory for the DLL (inside windows folder)
+          New-Item -Path "windows\lib" -ItemType Directory -Force
           
           # Copy the DLL
           Copy-Item -Path "${{ github.workspace }}\rust_lib\target\release\activity_monitor.dll" -Destination "windows\lib\"
           
-          # Instead of adding to CMakeLists.txt, create a batch file to copy the DLL after build
+          # Create a batch file to copy the DLL after build
           $batchFile = @"
           @echo off
           echo Copying activity_monitor.dll to build directory...
-          copy /Y "%~dp0\windows\lib\activity_monitor.dll" "%~dp0\build\windows\runner\Release\"
+          if not exist "%~dp0build\windows\runner\Release" mkdir "%~dp0build\windows\runner\Release"
+          copy /Y "%~dp0windows\lib\activity_monitor.dll" "%~dp0build\windows\runner\Release\"
           echo Done!
           "@
           
@@ -113,13 +111,13 @@ jobs:
           flutter build windows --release
           
           # Run the batch file to copy the DLL
-          .\copy_dll.bat
+          cmd /c copy_dll.bat
       
       # Copy the built files back to the workspace
       - name: Copy built files to workspace
         run: |
           # Create directory for the built files
-          mkdir -p ${{ github.workspace }}\build\windows\runner\Release
+          New-Item -Path "${{ github.workspace }}\build\windows\runner\Release" -ItemType Directory -Force
           
           # Copy the built files
           Copy-Item -Path "C:\temp_flutter_project\activity_monitor_app\build\windows\runner\Release\*" -Destination "${{ github.workspace }}\build\windows\runner\Release\" -Recurse -Force
@@ -128,7 +126,9 @@ jobs:
       - name: Create Windows build archive
         run: |
           cd ${{ github.workspace }}
-          Compress-Archive -Path "build\windows\runner\Release\*" -DestinationPath "activity_monitor_windows_build.zip"
+          
+          # Create the zip file
+          Compress-Archive -Path "build\windows\runner\Release\*" -DestinationPath "activity_monitor_windows_build.zip" -Force
       
       # Upload the Windows build
       - name: Upload Windows build artifact
