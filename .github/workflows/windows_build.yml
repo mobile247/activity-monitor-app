@@ -81,10 +81,13 @@ jobs:
           # Copy the library files from the main project
           Copy-Item -Path "${{ github.workspace }}\lib\*" -Destination "lib\" -Recurse -Force
       
-      # Add Rust DLL to the Flutter project and update CMake
-      - name: Add Rust DLL to Flutter project
+      # Create a minimal plugin to integrate the Rust DLL
+      - name: Create Rust DLL plugin
         run: |
           cd C:\temp_flutter_project\activity_monitor_app
+          
+          # Create windows folder if it doesn't exist
+          mkdir -p windows
           
           # Create lib directory for the DLL
           mkdir -p windows\lib
@@ -92,70 +95,15 @@ jobs:
           # Copy the DLL
           Copy-Item -Path "${{ github.workspace }}\rust_lib\target\release\activity_monitor.dll" -Destination "windows\lib\"
           
-          # Add DLL copying to main CMakeLists.txt
-          Add-Content -Path "windows\CMakeLists.txt" -Value @"
-
-          # Copy the activity_monitor.dll to the binary location
-          add_custom_command(
-            TARGET `${BINARY_NAME}
-            POST_BUILD
-            COMMAND `${CMAKE_COMMAND} -E copy_if_different
-            "`${CMAKE_CURRENT_SOURCE_DIR}/lib/activity_monitor.dll"
-            "`$<TARGET_FILE_DIR:`${BINARY_NAME}>"
-          )
+          # Instead of adding to CMakeLists.txt, create a batch file to copy the DLL after build
+          $batchFile = @"
+          @echo off
+          echo Copying activity_monitor.dll to build directory...
+          copy /Y "%~dp0\windows\lib\activity_monitor.dll" "%~dp0\build\windows\runner\Release\"
+          echo Done!
           "@
           
-          # Create manifest for admin privileges
-          $manifestContent = @"
-          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-          <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-            <assemblyIdentity 
-              version="1.0.0.0" 
-              processorArchitecture="*" 
-              name="com.mobile247.activitymonitor" 
-              type="win32"
-            />
-            <description>Activity Monitor</description>
-            
-            <!-- Request administrator privileges -->
-            <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-              <security>
-                <requestedPrivileges>
-                  <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
-                </requestedPrivileges>
-              </security>
-            </trustInfo>
-            
-            <!-- Windows 10 compatibility -->
-            <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
-              <application>
-                <!-- Windows 10 and 11 -->
-                <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
-              </application>
-            </compatibility>
-          </assembly>
-          "@
-          
-          Set-Content -Path "windows\runner\activity_monitor.exe.manifest" -Value $manifestContent
-          
-          # Add manifest to runner CMakeLists.txt
-          Add-Content -Path "windows\runner\CMakeLists.txt" -Value @"
-
-          # Add manifest file for admin privileges
-          set(MANIFEST_FILE "`${CMAKE_CURRENT_SOURCE_DIR}/activity_monitor.exe.manifest")
-          target_sources(`${BINARY_NAME} PRIVATE "`${MANIFEST_FILE}")
-          "@
-      
-      # Get full CMake content for debugging
-      - name: Debug CMake files
-        run: |
-          cd C:\temp_flutter_project\activity_monitor_app
-          
-          Write-Host "=== Main CMakeLists.txt ==="
-          Get-Content -Path "windows\CMakeLists.txt"
-          
-          Write-Host "=== Runner CMakeLists.txt ==="
-          Get-Content -Path "windows\runner\CMakeLists.txt"
+          Set-Content -Path "copy_dll.bat" -Value $batchFile
       
       # Build the Windows app
       - name: Build Windows app
@@ -163,6 +111,9 @@ jobs:
           cd C:\temp_flutter_project\activity_monitor_app
           flutter pub get
           flutter build windows --release
+          
+          # Run the batch file to copy the DLL
+          .\copy_dll.bat
       
       # Copy the built files back to the workspace
       - name: Copy built files to workspace
